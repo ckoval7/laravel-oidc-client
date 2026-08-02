@@ -18,6 +18,7 @@ use Maicol07\OpenIDConnect\Client;
 use Maicol07\OpenIDConnect\ClientAuthMethod;
 use Maicol07\OpenIDConnect\CodeChallengeMethod;
 use Maicol07\OpenIDConnect\JwtSigningAlgorithm;
+use Maicol07\OpenIDConnect\MutualTlsCertificate;
 use Maicol07\OpenIDConnect\ResponseType;
 use Maicol07\OpenIDConnect\Scope;
 use Maicol07\OpenIDConnect\UserInfo;
@@ -52,6 +53,7 @@ class OIDCGuard extends SessionGuard
     {
         $config = $this->app->make('config')->get('oidc');
         $this->oidc = new Client(
+            ...$this->mutualTlsOptions($config),
             client_id: $config['client_id'],
             client_secret: $config['client_secret'],
             provider_url: $config['provider_url'],
@@ -82,6 +84,56 @@ class OIDCGuard extends SessionGuard
             client_name: $config['client_name'],
             allow_implicit_flow: $config['allow_implicit_flow'],
             jwks: $config['jwks']
+        );
+    }
+
+    /**
+     * Mutual-TLS constructor arguments (RFC 8705), spread into the client.
+     *
+     * These are only understood by a client supporting RFC 8705, so nothing is passed unless mutual
+     * TLS is actually configured: an upstream client without those parameters keeps working, and
+     * only a deployment that opted in needs the fork.
+     *
+     * @param array<string, mixed> $config
+     * @return array<string, mixed>
+     */
+    private function mutualTlsOptions(array $config): array
+    {
+        $certificate = $this->buildMutualTlsCertificate($config);
+        $auth_method = data_get($config, 'token_endpoint_auth_method');
+        $bound_tokens = (bool) data_get($config, 'tls_client_certificate_bound_access_tokens', false);
+
+        if ($certificate === null && blank($auth_method) && !$bound_tokens) {
+            return [];
+        }
+
+        return array_filter([
+            'mtls_certificate' => $certificate,
+            'token_endpoint_auth_method' => blank($auth_method) ? null : ClientAuthMethod::from($auth_method),
+            'tls_client_certificate_bound_access_tokens' => $bound_tokens,
+        ], static fn (mixed $value): bool => $value !== null);
+    }
+
+    /**
+     * Builds the client certificate presented during the TLS handshake for mutual-TLS client
+     * authentication and certificate-bound access tokens (RFC 8705).
+     *
+     * Returns null when no certificate is configured, so that clients authenticating with a
+     * secret are left untouched.
+     *
+     * @param array<string, mixed> $config
+     */
+    private function buildMutualTlsCertificate(array $config): ?MutualTlsCertificate
+    {
+        $certificate_path = data_get($config, 'mtls.certificate_path');
+        if (blank($certificate_path)) {
+            return null;
+        }
+
+        return new MutualTlsCertificate(
+            certificate_path: $certificate_path,
+            private_key_path: data_get($config, 'mtls.private_key_path') ?: null,
+            passphrase: data_get($config, 'mtls.passphrase') ?: null
         );
     }
 

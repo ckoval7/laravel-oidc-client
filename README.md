@@ -61,6 +61,47 @@ You can set the following environment variables to adjust the package settings:
 You can find other options to set and their env variables in `config/oidc.php`. Note that some options are not
 required (like endpoints) if you use OIDC auto discovery!
 
+### Mutual TLS (RFC 8705)
+
+The client can authenticate with a certificate presented during the TLS handshake instead of a client secret, and
+receive certificate-bound access tokens.
+
+> **This requires a client supporting [RFC 8705](https://tools.ietf.org/html/rfc8705).** Mutual TLS support is not
+> yet part of an upstream `maicol07/oidc-client` release, so the underlying client has to be pulled from a fork.
+> Add the following to your **application's** `composer.json` (the inline `as 4.99.0` alias is what satisfies this
+> package's `^4` constraint), then run `composer update maicol07/oidc-client`:
+>
+> ```json
+> "repositories": [
+>     { "type": "vcs", "url": "https://github.com/ckoval7/oidc-client-php" }
+> ],
+> "require": {
+>     "maicol07/oidc-client": "dev-feat/rfc8705-mutual-tls as 4.99.0"
+> }
+> ```
+>
+> Setting `OIDC_TOKEN_ENDPOINT_AUTH_METHOD` to a mutual-TLS method without the fork installed throws a
+> `ValueError`, as the enum case does not exist upstream.
+
+- `OIDC_MTLS_CERTIFICATE_PATH`: Path to the PEM encoded client certificate. Setting this is what enables mutual TLS;
+  leave it unset and the package behaves exactly as before.
+- `OIDC_MTLS_PRIVATE_KEY_PATH`: Path to the PEM encoded private key. Can be omitted if the key is bundled in the
+  certificate file.
+- `OIDC_MTLS_PASSPHRASE`: Passphrase of the private key, if it is encrypted.
+- `OIDC_TOKEN_ENDPOINT_AUTH_METHOD`: Client authentication method for the token endpoint, e.g. `tls_client_auth`
+  (certificate issued by a CA the provider trusts) or `self_signed_tls_client_auth` (the provider holds the
+  certificate itself). If left unset, a mutual-TLS method announced by the provider is selected only when a
+  certificate is configured.
+- `OIDC_TLS_CLIENT_CERTIFICATE_BOUND_ACCESS_TOKENS`: Request certificate-bound access tokens. Defaults to `false`,
+  and is picked up automatically from the provider's discovery document.
+
+`OIDC_CLIENT_SECRET` can be left unset with mutual TLS — the certificate authenticates the client, and the secret is
+not sent to the token endpoint. When the provider publishes
+[`mtls_endpoint_aliases`](https://tools.ietf.org/html/rfc8705#section-5), those endpoints are used automatically.
+
+Note that the certificate and its private key are read by the web server user (PHP-FPM, Octane), not by the user
+running the deploy, so make sure they are readable by it.
+
 You can also publish the config file (`config/oidc.php`) if you want:
 
 ```powershell

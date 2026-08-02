@@ -44,6 +44,15 @@ return [
     'jwt_audience' => env('OIDC_JWT_AUDIENCE'),
     'time_drift' => env('OIDC_TIME_DRIFT', 300),
     'token_endpoint_auth_methods_supported' => explode(' ', env('OIDC_TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED', '')),
+    'token_endpoint_auth_method' => env('OIDC_TOKEN_ENDPOINT_AUTH_METHOD'),
+
+    // Mutual TLS options (RFC 8705). Requires a client supporting mutual TLS.
+    'mtls' => [
+        'certificate_path' => env('OIDC_MTLS_CERTIFICATE_PATH'),
+        'private_key_path' => env('OIDC_MTLS_PRIVATE_KEY_PATH'),
+        'passphrase' => env('OIDC_MTLS_PASSPHRASE'),
+    ],
+    'tls_client_certificate_bound_access_tokens' => env('OIDC_TLS_CLIENT_CERTIFICATE_BOUND_ACCESS_TOKENS', false),
 
     // Http options
     'http_proxy' => env('OIDC_HTTP_PROXY'),
