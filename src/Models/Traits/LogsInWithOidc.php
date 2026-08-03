@@ -24,12 +24,24 @@ trait LogsInWithOidc
      */
     public function mapOIDCUserinfo(string $issuer, UserInfo $user_info, OidcAuthMapping $mapping): void
     {
-        $this->fill([config(
-            'oidc.user_creation_attributes', // TODO: Remove in next major release
-            static fn (string $issuer, UserInfo $user_info): array => [
-                'first_name' => $user_info->given_name,
-                'last_name' => $user_info->family_name,
-            ]
-        )($issuer, $user_info, $mapping)]);
+        // The default must not be passed to config(): config() resolves a closure default by
+        // *calling* it (Arr::get -> value()), with no arguments, so a callable default is an
+        // ArgumentCountError rather than a fallback. Read the key, then fall back explicitly.
+        $attributes = config('oidc.user_creation_attributes'); // TODO: Remove in next major release
+
+        $attributes ??= static fn (string $issuer, UserInfo $user_info): array => [
+            'first_name' => $user_info->given_name,
+            'last_name' => $user_info->family_name,
+        ];
+
+        // The setting is documented as a callable, but its name reads like a plain map, so a
+        // literal array is accepted too rather than fataling on a non-callable value.
+        if (is_callable($attributes)) {
+            $attributes = $attributes($issuer, $user_info, $mapping);
+        }
+
+        // Whatever produced it, this is already the attribute array; wrapping it in another
+        // array would hand fill() a single nested element instead of the attributes.
+        $this->fill($attributes);
     }
 }
