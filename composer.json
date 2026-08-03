@@ -14,7 +14,11 @@
         "laravel/octane": "^2",
         "roave/security-advisories": "dev-latest",
         "rector/rector": "^1",
-        "orchestra/testbench": "^11.1"
+        "orchestra/testbench": "^11.1",
+        "phpunit/phpunit": "^11"
+    },
+    "scripts": {
+        "test": "phpunit"
     },
     "authors": [
         {

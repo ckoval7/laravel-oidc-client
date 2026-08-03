@@ -80,11 +80,12 @@ receive certificate-bound access tokens.
 > }
 > ```
 >
-> Setting `OIDC_TOKEN_ENDPOINT_AUTH_METHOD` to a mutual-TLS method without the fork installed throws a
-> `ValueError`, as the enum case does not exist upstream.
+> Support is detected from the installed client, so this package works with or without it: configuring any of the
+> options below when the client does not support RFC 8705 throws a `RuntimeException` explaining what to install,
+> rather than failing deeper in the stack. Leaving them unset is unaffected either way.
 
-- `OIDC_MTLS_CERTIFICATE_PATH`: Path to the PEM encoded client certificate. Setting this is what enables mutual TLS;
-  leave it unset and the package behaves exactly as before.
+- `OIDC_MTLS_CERTIFICATE_PATH`: Path to the PEM encoded client certificate. Leave every option below unset and the
+  package behaves exactly as before.
 - `OIDC_MTLS_PRIVATE_KEY_PATH`: Path to the PEM encoded private key. Can be omitted if the key is bundled in the
   certificate file.
 - `OIDC_MTLS_PASSPHRASE`: Passphrase of the private key, if it is encrypted.

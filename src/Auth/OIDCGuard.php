@@ -18,10 +18,11 @@ use Maicol07\OpenIDConnect\Client;
 use Maicol07\OpenIDConnect\ClientAuthMethod;
 use Maicol07\OpenIDConnect\CodeChallengeMethod;
 use Maicol07\OpenIDConnect\JwtSigningAlgorithm;
-use Maicol07\OpenIDConnect\MutualTlsCertificate;
 use Maicol07\OpenIDConnect\ResponseType;
 use Maicol07\OpenIDConnect\Scope;
 use Maicol07\OpenIDConnect\UserInfo;
+use ReflectionClass;
+use RuntimeException;
 
 class OIDCGuard extends SessionGuard
 {
@@ -90,25 +91,30 @@ class OIDCGuard extends SessionGuard
     /**
      * Mutual-TLS constructor arguments (RFC 8705), spread into the client.
      *
-     * These are only understood by a client supporting RFC 8705, so nothing is passed unless mutual
-     * TLS is actually configured: an upstream client without those parameters keeps working, and
-     * only a deployment that opted in needs the fork.
+     * Nothing is passed unless mutual TLS is actually configured, so a deployment that has not
+     * opted in behaves exactly as before. When it has opted in, the installed client is checked
+     * for RFC 8705 support first: passing these to a client that does not understand them would
+     * be an unrecoverable "Unknown named parameter" error at guard construction, which would take
+     * down authentication entirely, so an explicit exception is thrown instead.
      *
      * @param array<string, mixed> $config
      * @return array<string, mixed>
+     * @throws RuntimeException When mutual TLS is configured but unsupported by the installed client.
      */
     private function mutualTlsOptions(array $config): array
     {
-        $certificate = $this->buildMutualTlsCertificate($config);
+        $certificate_path = data_get($config, 'mtls.certificate_path');
         $auth_method = data_get($config, 'token_endpoint_auth_method');
-        $bound_tokens = (bool) data_get($config, 'tls_client_certificate_bound_access_tokens', false);
+        $bound_tokens = $this->booleanConfig(data_get($config, 'tls_client_certificate_bound_access_tokens', false));
 
-        if ($certificate === null && blank($auth_method) && !$bound_tokens) {
+        if (blank($certificate_path) && blank($auth_method) && !$bound_tokens) {
             return [];
         }
 
+        $this->assertMutualTlsSupported();
+
         return array_filter([
-            'mtls_certificate' => $certificate,
+            'mtls_certificate' => $this->buildMutualTlsCertificate($config),
             'token_endpoint_auth_method' => blank($auth_method) ? null : ClientAuthMethod::from($auth_method),
             'tls_client_certificate_bound_access_tokens' => $bound_tokens,
         ], static fn (mixed $value): bool => $value !== null);
@@ -118,23 +124,73 @@ class OIDCGuard extends SessionGuard
      * Builds the client certificate presented during the TLS handshake for mutual-TLS client
      * authentication and certificate-bound access tokens (RFC 8705).
      *
-     * Returns null when no certificate is configured, so that clients authenticating with a
-     * secret are left untouched.
+     * Returns null when no certificate is configured — a mutual-TLS auth method or certificate-bound
+     * access tokens can be requested without this package supplying the certificate itself, for
+     * example when TLS is terminated upstream.
      *
      * @param array<string, mixed> $config
      */
-    private function buildMutualTlsCertificate(array $config): ?MutualTlsCertificate
+    private function buildMutualTlsCertificate(array $config): ?object
     {
         $certificate_path = data_get($config, 'mtls.certificate_path');
         if (blank($certificate_path)) {
             return null;
         }
 
-        return new MutualTlsCertificate(
+        /** @phpstan-ignore-next-line Class only exists on a client supporting RFC 8705. */
+        return new \Maicol07\OpenIDConnect\MutualTlsCertificate(
             certificate_path: $certificate_path,
             private_key_path: data_get($config, 'mtls.private_key_path') ?: null,
             passphrase: data_get($config, 'mtls.passphrase') ?: null
         );
+    }
+
+    /**
+     * Whether the installed `maicol07/oidc-client` understands RFC 8705 mutual TLS.
+     *
+     * Support is detected from the client itself rather than a version constraint, so this works
+     * against any release that adds it.
+     */
+    private function mutualTlsSupported(): bool
+    {
+        if (!class_exists(\Maicol07\OpenIDConnect\MutualTlsCertificate::class)) {
+            return false;
+        }
+
+        foreach ((new ReflectionClass(Client::class))->getConstructor()?->getParameters() ?? [] as $parameter) {
+            if ($parameter->getName() === 'mtls_certificate') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @throws RuntimeException When mutual TLS is configured but unsupported by the installed client.
+     */
+    private function assertMutualTlsSupported(): void
+    {
+        if ($this->mutualTlsSupported()) {
+            return;
+        }
+
+        throw new RuntimeException(
+            'Mutual TLS (RFC 8705) is configured, but the installed maicol07/oidc-client does not support it. '
+            .'Install a release providing MutualTlsCertificate, or unset OIDC_MTLS_CERTIFICATE_PATH, '
+            .'OIDC_TOKEN_ENDPOINT_AUTH_METHOD and OIDC_TLS_CLIENT_CERTIFICATE_BOUND_ACCESS_TOKENS.'
+        );
+    }
+
+    /**
+     * Interprets a config flag that may arrive as a string.
+     *
+     * `env()` returns real booleans for the literals it recognises, but a cached config
+     * (`config:cache`) serialises them, so a plain `(bool)` cast would read "false" as true.
+     */
+    private function booleanConfig(mixed $value): bool
+    {
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? (bool) $value;
     }
 
     /**
